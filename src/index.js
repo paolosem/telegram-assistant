@@ -526,7 +526,7 @@ async function resolveSelectedCalendars(user) {
   return [{ id: selected, summary: selected, primary: false }];
 }
 
-function formatEventLines(events, { showCalendar = false } = {}) {
+function formatEventLines(events, { showCalendar = false, timezone = "Europe/Rome" } = {}) {
   if (!events.length) return "Nessun evento";
   return events
     .map((event) => {
@@ -539,7 +539,8 @@ function formatEventLines(events, { showCalendar = false } = {}) {
       if (!event.startDateTime) return `- ${event.summary}${calendarLabel}`;
       const time = new Date(event.startDateTime).toLocaleTimeString("it-IT", {
         hour: "2-digit",
-        minute: "2-digit"
+        minute: "2-digit",
+        timeZone: timezone
       });
       return `- ${time} ${event.summary}${calendarLabel}`;
     })
@@ -727,14 +728,13 @@ async function listUnreadEmails(user, maxResults = 5) {
 
   const list = await gmail.users.messages.list({
     userId: "me",
-    q: "in:inbox is:unread",
+    q: "category:primary in:inbox is:unread",
     maxResults
   });
 
   const messages = list.data.messages || [];
-  const count = Number(list.data.resultSizeEstimate || 0);
   if (!messages.length) {
-    return { connected: true, count, items: [] };
+    return { connected: true, count: 0, items: [] };
   }
 
   const details = await Promise.all(
@@ -755,7 +755,7 @@ async function listUnreadEmails(user, maxResults = 5) {
     return { from, subject };
   });
 
-  return { connected: true, count, items };
+  return { connected: true, count: items.length, items };
 }
 
 async function listGoogleOpenTasks(user, maxResults = null) {
@@ -811,7 +811,10 @@ async function listGoogleOpenTasks(user, maxResults = null) {
 
 async function sendTelegramHtmlInChunks(chatId, text, chunkSize = 3500) {
   if (text.length <= chunkSize) {
-    await bot.telegram.sendMessage(chatId, text, { parse_mode: "HTML" });
+    await bot.telegram.sendMessage(chatId, text, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true
+    });
     return;
   }
 
@@ -831,14 +834,18 @@ async function sendTelegramHtmlInChunks(chatId, text, chunkSize = 3500) {
   if (current) chunks.push(current);
 
   for (const chunk of chunks) {
-    await bot.telegram.sendMessage(chatId, chunk, { parse_mode: "HTML" });
+    await bot.telegram.sendMessage(chatId, chunk, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true
+    });
   }
 }
 
 async function sendMorningDigestForUser(userId, user, options = {}) {
   const targetDate = options.targetDate || new Date();
   const header = options.header || "Buongiorno! Ecco il punto della mattina:";
-  const dateLabel = formatDateISO(targetDate);
+  const timezone = user.timezone || "Europe/Rome";
+  const dateLabel = getTimePartsInTimezone(targetDate, timezone).dateKey;
   const range = getDayRange(targetDate);
   let events = [];
   try {
@@ -881,7 +888,7 @@ async function sendMorningDigestForUser(userId, user, options = {}) {
         if (!t.due) return false;
         const dueDate = new Date(t.due);
         if (Number.isNaN(dueDate.getTime())) return false;
-        const dueKey = getTimePartsInTimezone(dueDate, user.timezone || "Europe/Rome").dateKey;
+        const dueKey = getTimePartsInTimezone(dueDate, timezone).dateKey;
         return dueKey === dateLabel;
       });
 
@@ -897,7 +904,7 @@ async function sendMorningDigestForUser(userId, user, options = {}) {
       if (!t.due) return false;
       const dueDate = new Date(t.due);
       if (Number.isNaN(dueDate.getTime())) return false;
-      const dueKey = getTimePartsInTimezone(dueDate, user.timezone || "Europe/Rome").dateKey;
+      const dueKey = getTimePartsInTimezone(dueDate, timezone).dateKey;
       return dueKey === dateLabel;
     }).length
     : 0;
@@ -906,7 +913,11 @@ async function sendMorningDigestForUser(userId, user, options = {}) {
     ? events.slice(0, 6).map((e) => {
       if (e.startDate) return `- Tutto il giorno: ${escapeHtml(e.summary)}`;
       const time = e.startDateTime
-        ? new Date(e.startDateTime).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })
+        ? new Date(e.startDateTime).toLocaleTimeString("it-IT", {
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: timezone
+        })
         : "--:--";
       return `- ${escapeHtml(time)} ${escapeHtml(e.summary)}`;
     }).join("\n")
@@ -1106,7 +1117,10 @@ bot.command("brief", async (ctx) => {
     events = [];
   }
   const showCalendar = user.google?.calendarId === "all";
-  const eventLines = formatEventLines(events, { showCalendar });
+  const eventLines = formatEventLines(events, {
+    showCalendar,
+    timezone: user.timezone || "Europe/Rome"
+  });
   if (!OPENAI_ENABLED) {
     const fallback = [
       "Daily Brief - Oggi",
@@ -1154,7 +1168,10 @@ bot.command("gcal_events", async (ctx) => {
     events = [];
   }
   const showCalendar = user.google?.calendarId === "all";
-  const lines = formatEventLines(events, { showCalendar });
+  const lines = formatEventLines(events, {
+    showCalendar,
+    timezone: user.timezone || "Europe/Rome"
+  });
   await ctx.reply(`Eventi ${label}:\n${lines}`);
 });
 
@@ -1169,7 +1186,10 @@ bot.command("gcal_events7", async (ctx) => {
     events = [];
   }
   const showCalendar = user.google?.calendarId === "all";
-  const lines = formatEventLines(events, { showCalendar });
+  const lines = formatEventLines(events, {
+    showCalendar,
+    timezone: user.timezone || "Europe/Rome"
+  });
   await ctx.reply(`Eventi prossimi 7 giorni:\n${lines}`);
 });
 
@@ -1538,7 +1558,8 @@ bot.on("text", async (ctx) => {
 
   const tasks = user.tasks.filter((task) => !task.done).slice(0, 5);
   const eventsText = formatEventLines(events, {
-    showCalendar: user.google?.calendarId === "all"
+    showCalendar: user.google?.calendarId === "all",
+    timezone: user.timezone || "Europe/Rome"
   });
   const tasksText = formatTasks(tasks);
 
