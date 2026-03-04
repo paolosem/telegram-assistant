@@ -728,7 +728,7 @@ async function listUnreadEmails(user, maxResults = 5) {
 
   const list = await gmail.users.messages.list({
     userId: "me",
-    q: "category:primary in:inbox is:unread",
+    q: "in:inbox is:unread",
     maxResults
   });
 
