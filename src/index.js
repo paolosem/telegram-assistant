@@ -717,7 +717,7 @@ async function getTopIlPostArticle() {
   };
 }
 
-async function listUnreadEmails(user, maxResults = 5) {
+async function listUnreadEmails(user, maxResults = 20) {
   if (!user.google?.tokens) {
     return { connected: false, count: 0, items: [] };
   }
@@ -870,7 +870,7 @@ async function sendMorningDigestForUser(userId, user, options = {}) {
 
   let mailInfo;
   try {
-    mailInfo = await listUnreadEmails(user, 4);
+    mailInfo = await listUnreadEmails(user, 20);
   } catch {
     mailInfo = { connected: false, count: 0, items: [] };
   }
