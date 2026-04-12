@@ -55,7 +55,6 @@ Nota: usa un piano sempre attivo (es. `starter`) se vuoi invio mattutino affidab
 - /task_done <id>
 - /task_today
 - /task_next
-- /dashboard
 - /gcal
 - /gcal_status
 - /gcal_disconnect
@@ -78,16 +77,6 @@ Esempi:
 - `/task_list`
 - `/task_today`
 - `/task_done 3`
-
-## Dashboard web
-- Avvia il bot con `npm start`.
-- Apri `http://localhost:3000/dashboard/overview` nel browser.
-- La dashboard mostra eventi, task e una vista di focus operativo.
-- Puoi aggiungere task, marcarle done o eliminarle dalla UI.
-- Hai pulsanti rapidi data (`Ieri`, `Oggi`, `Domani`) e notifiche toast in UI.
-- Puoi assegnare categorie agli eventi direttamente nella vista Agenda.
-- Hai una sezione `Appunti` con autosalvataggio e salvataggio manuale.
-- Menu destro con pagine dedicate: `Panoramica`, `Agenda`, `Task`, `Appunti`, `Focus`.
 
 ## Messaggio mattutino
 - Ogni mattina ricevi un riepilogo con: mail non lette, task aperte Google Tasks, appuntamenti del giorno e un link a un articolo de Il Post.

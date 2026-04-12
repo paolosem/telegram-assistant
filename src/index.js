@@ -27,7 +27,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, "..", "data");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
-const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -141,198 +140,15 @@ async function startOAuthServer() {
       const host = req.headers.host || `${redirectUrl.hostname}:${port}`;
       const proto = req.headers["x-forwarded-proto"] || redirectUrl.protocol.replace(":", "");
       const requestUrl = new URL(req.url, `${proto}://${host}`);
-      if (requestUrl.pathname === "/") {
-        res.writeHead(302, { Location: "/dashboard/overview" });
+      if (requestUrl.pathname === "/" || requestUrl.pathname === "/healthz") {
+        res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Regia OS bot online");
+        return;
+      }
+
+      if (requestUrl.pathname === "/favicon.ico") {
+        res.writeHead(204);
         res.end();
-        return;
-      }
-
-      if (requestUrl.pathname === "/dashboard" || requestUrl.pathname.startsWith("/dashboard/")) {
-        const html = await fs.readFile(path.join(PUBLIC_DIR, "dashboard.html"), "utf8");
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(html);
-        return;
-      }
-
-      if (requestUrl.pathname === "/api/overview") {
-        const state = await readState();
-        const picked = pickUserFromRequest(state, requestUrl.searchParams);
-        if (!picked) {
-          jsonResponse(res, 404, { error: "Nessun utente disponibile" });
-          return;
-        }
-
-        const dateQuery = requestUrl.searchParams.get("date") || "oggi";
-        const date = parseDateToken(dateQuery) || new Date();
-        const range = getDayRange(date);
-
-        let events = [];
-        try {
-          events = await getCalendarEvents(picked.user, range);
-        } catch {
-          events = [];
-        }
-
-        const eventsWithCategory = events.map((event) => ({
-          ...event,
-          category: picked.user.eventCategories[event.eventKey] || ""
-        }));
-
-        const tasksOpen = picked.user.tasks.filter((task) => !task.done);
-        const today = formatDateISO(date);
-        const tasksToday = tasksOpen.filter((task) => task.dueDate === today);
-
-        jsonResponse(res, 200, {
-          userId: picked.userId,
-          date: formatDateISO(date),
-          events: eventsWithCategory,
-          tasksOpen,
-          tasksToday,
-          notes: picked.user.notes || ""
-        });
-        return;
-      }
-
-      if (requestUrl.pathname === "/api/event/category" && req.method === "POST") {
-        const chunks = [];
-        for await (const chunk of req) chunks.push(chunk);
-        const bodyRaw = Buffer.concat(chunks).toString("utf8");
-        const body = bodyRaw ? JSON.parse(bodyRaw) : {};
-
-        const eventKey = String(body.eventKey || "").trim();
-        const category = String(body.category || "").trim();
-        if (!eventKey) {
-          jsonResponse(res, 400, { error: "Event key mancante" });
-          return;
-        }
-
-        const state = await readState();
-        const picked = pickUserFromRequest(state, requestUrl.searchParams);
-        if (!picked) {
-          jsonResponse(res, 404, { error: "Nessun utente disponibile" });
-          return;
-        }
-
-        if (category) {
-          picked.user.eventCategories[eventKey] = category;
-        } else {
-          delete picked.user.eventCategories[eventKey];
-        }
-        await writeState(state);
-        jsonResponse(res, 200, { ok: true });
-        return;
-      }
-
-      if (requestUrl.pathname === "/api/notes/save" && req.method === "POST") {
-        const chunks = [];
-        for await (const chunk of req) chunks.push(chunk);
-        const bodyRaw = Buffer.concat(chunks).toString("utf8");
-        const body = bodyRaw ? JSON.parse(bodyRaw) : {};
-        const notes = String(body.notes || "");
-
-        const state = await readState();
-        const picked = pickUserFromRequest(state, requestUrl.searchParams);
-        if (!picked) {
-          jsonResponse(res, 404, { error: "Nessun utente disponibile" });
-          return;
-        }
-
-        picked.user.notes = notes;
-        await writeState(state);
-        jsonResponse(res, 200, { ok: true });
-        return;
-      }
-
-      if (requestUrl.pathname === "/api/task/done" && req.method === "POST") {
-        const state = await readState();
-        const picked = pickUserFromRequest(state, requestUrl.searchParams);
-        if (!picked) {
-          jsonResponse(res, 404, { error: "Nessun utente disponibile" });
-          return;
-        }
-
-        const id = Number(requestUrl.searchParams.get("id"));
-        if (!id) {
-          jsonResponse(res, 400, { error: "ID task non valido" });
-          return;
-        }
-
-        const task = picked.user.tasks.find((item) => item.id === id);
-        if (!task) {
-          jsonResponse(res, 404, { error: "Task non trovata" });
-          return;
-        }
-
-        task.done = true;
-        await writeState(state);
-        jsonResponse(res, 200, { ok: true });
-        return;
-      }
-
-      if (requestUrl.pathname === "/api/task/delete" && req.method === "POST") {
-        const state = await readState();
-        const picked = pickUserFromRequest(state, requestUrl.searchParams);
-        if (!picked) {
-          jsonResponse(res, 404, { error: "Nessun utente disponibile" });
-          return;
-        }
-
-        const id = Number(requestUrl.searchParams.get("id"));
-        if (!id) {
-          jsonResponse(res, 400, { error: "ID task non valido" });
-          return;
-        }
-
-        const before = picked.user.tasks.length;
-        picked.user.tasks = picked.user.tasks.filter((item) => item.id !== id);
-        if (picked.user.tasks.length === before) {
-          jsonResponse(res, 404, { error: "Task non trovata" });
-          return;
-        }
-
-        await writeState(state);
-        jsonResponse(res, 200, { ok: true });
-        return;
-      }
-
-      if (requestUrl.pathname === "/api/task/add" && req.method === "POST") {
-        const chunks = [];
-        for await (const chunk of req) chunks.push(chunk);
-        const bodyRaw = Buffer.concat(chunks).toString("utf8");
-        const body = bodyRaw ? JSON.parse(bodyRaw) : {};
-
-        const title = String(body.title || "").trim();
-        if (!title) {
-          jsonResponse(res, 400, { error: "Titolo task obbligatorio" });
-          return;
-        }
-
-        const state = await readState();
-        const picked = pickUserFromRequest(state, requestUrl.searchParams);
-        if (!picked) {
-          jsonResponse(res, 404, { error: "Nessun utente disponibile" });
-          return;
-        }
-
-        const priority = parsePriority(String(body.priority || "media"));
-        const dueDate = body.dueDate ? parseDateToken(String(body.dueDate)) : null;
-        const tags = Array.isArray(body.tags)
-          ? body.tags.map((tag) => String(tag).toLowerCase()).filter(Boolean)
-          : [];
-
-        const task = {
-          id: picked.user.taskCounter,
-          title,
-          priority,
-          dueDate: dueDate ? formatDateISO(dueDate) : null,
-          tags,
-          done: false,
-          createdAt: new Date().toISOString()
-        };
-        picked.user.tasks.push(task);
-        picked.user.taskCounter += 1;
-        await writeState(state);
-        jsonResponse(res, 200, { ok: true, task });
         return;
       }
 
@@ -399,30 +215,6 @@ function buildAuthUrl(stateToken) {
     prompt: "consent",
     state: stateToken
   });
-}
-
-function getDashboardUrl() {
-  if (APP_BASE_URL) {
-    return `${APP_BASE_URL.replace(/\/$/, "")}/dashboard/overview`;
-  }
-  const redirectUrl = new URL(GOOGLE_REDIRECT_URI);
-  return `${redirectUrl.origin}/dashboard/overview`;
-}
-
-function pickUserFromRequest(state, searchParams) {
-  if (!state.users) return null;
-  const requested = searchParams.get("uid");
-  if (requested && state.users[requested]) {
-    return { userId: requested, user: getUserState(state, requested) };
-  }
-  const firstUserId = Object.keys(state.users)[0];
-  if (!firstUserId) return null;
-  return { userId: firstUserId, user: getUserState(state, firstUserId) };
-}
-
-function jsonResponse(res, statusCode, payload) {
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(payload));
 }
 
 function buildEventKey({ calendarId, eventId, startDateTime, startDate, summary }) {
@@ -972,7 +764,8 @@ function startMorningDigestScheduler() {
         await sendMorningDigestForUser(userId, user);
         user.lastMorningDigestDate = dateKey;
         changed = true;
-      } catch {
+      } catch (err) {
+        console.error(`Morning digest error for user ${userId}:`, err?.message || err);
       }
     }
 
@@ -981,6 +774,13 @@ function startMorningDigestScheduler() {
     }
   }, 60000);
 }
+
+bot.catch((err, ctx) => {
+  console.error("Telegram bot error:", err?.message || err, {
+    updateType: ctx?.updateType,
+    userId: ctx?.from?.id
+  });
+});
 
 function extractTags(text) {
   const matches = text.match(/#\w+/g) || [];
@@ -1069,7 +869,6 @@ bot.start(async (ctx) => {
     "/task_done <id> - completa task",
     "/task_today - focus oggi",
     "/task_next - prossime task",
-    "/dashboard - apri pannello web",
     "/gcal - collega Google Calendar + Gmail + Tasks",
     "/gcal_status - stato collegamento",
     "/gcal_disconnect - scollega Google Calendar",
@@ -1442,11 +1241,6 @@ bot.command("task_next", async (ctx) => {
   await ctx.reply(`Prossime task:\n${formatTasks(sorted.slice(0, 10))}`);
 });
 
-bot.command("dashboard", async (ctx) => {
-  await startOAuthServer();
-  await ctx.reply(`Apri la dashboard: ${getDashboardUrl()}`);
-});
-
 bot.command("morning_on", async (ctx) => {
   const state = await readState();
   const user = getUserState(state, String(ctx.from.id));
@@ -1582,16 +1376,26 @@ bot.on("text", async (ctx) => {
   await ctx.reply(wrapReply(reply));
 });
 
-bot.launch();
-startMorningDigestScheduler();
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
 
-startOAuthServer()
-  .then(() => {
-    console.log(`Dashboard attiva su ${getDashboardUrl()}`);
-  })
-  .catch((err) => {
-    console.error("Errore avvio server dashboard:", err?.message || err);
-  });
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+  process.exit(1);
+});
+
+async function bootstrap() {
+  await startOAuthServer();
+  await bot.launch();
+  startMorningDigestScheduler();
+  console.log(`Regia OS bot online su ${APP_BASE_URL || GOOGLE_REDIRECT_URI}`);
+}
+
+bootstrap().catch((err) => {
+  console.error("Errore avvio applicazione:", err?.message || err);
+  process.exit(1);
+});
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
