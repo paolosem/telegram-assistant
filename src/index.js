@@ -221,11 +221,47 @@ function buildEventKey({ calendarId, eventId, startDateTime, startDate, summary 
   return [calendarId || "", eventId || "", startDateTime || startDate || "", summary || ""].join("|");
 }
 
-function getDayRange(date) {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(date);
-  end.setHours(23, 59, 59, 999);
+function getTimezoneOffsetMillis(date, timezone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+
+  const asUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour),
+    Number(map.minute),
+    Number(map.second)
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedTimeToUtc(year, month, day, hour, minute, second, timezone) {
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0));
+  const offset = getTimezoneOffsetMillis(utcGuess, timezone);
+  return new Date(utcGuess.getTime() - offset);
+}
+
+function getDayRange(date, timezone = "Europe/Rome") {
+  const dateKey = getTimePartsInTimezone(date, timezone).dateKey;
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const start = zonedTimeToUtc(year, month, day, 0, 0, 0, timezone);
+  const end = zonedTimeToUtc(year, month, day, 23, 59, 59, timezone);
+  end.setMilliseconds(999);
   return { start, end };
 }
 
@@ -640,7 +676,7 @@ async function sendMorningDigestForUser(userId, user, options = {}) {
   const header = options.header || "Buongiorno! Ecco il punto della mattina:";
   const timezone = user.timezone || "Europe/Rome";
   const dateLabel = getTimePartsInTimezone(targetDate, timezone).dateKey;
-  const range = getDayRange(targetDate);
+  const range = getDayRange(targetDate, timezone);
   let events = [];
   try {
     events = await getCalendarEvents(user, range);
@@ -912,7 +948,7 @@ bot.command("brief", async (ctx) => {
   const user = getUserState(state, String(ctx.from.id));
   let events = [];
   try {
-    const range = getDayRange(new Date());
+    const range = getDayRange(new Date(), user.timezone || "Europe/Rome");
     events = await getCalendarEvents(user, range);
   } catch {
     events = [];
@@ -963,7 +999,7 @@ bot.command("gcal_events", async (ctx) => {
   const user = getUserState(state, String(ctx.from.id));
   let events = [];
   try {
-    const range = getDayRange(targetDate);
+    const range = getDayRange(targetDate, user.timezone || "Europe/Rome");
     events = await getCalendarEvents(user, range);
   } catch {
     events = [];
@@ -1346,7 +1382,7 @@ bot.on("text", async (ctx) => {
   const targetDate = picked?.date || new Date();
   const dateLabel = picked?.label || "oggi";
   try {
-    const range = getDayRange(targetDate);
+    const range = getDayRange(targetDate, user.timezone || "Europe/Rome");
     events = await getCalendarEvents(user, range);
   } catch {
     events = [];
