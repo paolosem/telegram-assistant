@@ -258,6 +258,8 @@ async function getCalendarEvents(user, { start, end }) {
 
     const events = response.data.items || [];
     for (const event of events) {
+      if (event.eventType === "workingLocation") continue;
+
       const summary = event.summary || "Senza titolo";
       const startDateTime = event.start?.dateTime || null;
       const startDate = event.start?.date || null;
